@@ -50,16 +50,53 @@ const q = (data) => ({
   ...data
 });
 
-const choiceSet = (answer, misses) => {
-  const values = [answer, ...misses].map(String).filter((value, index, array) => value && array.indexOf(value) === index);
+const isNonNegativeChoice = (value) => {
+  const number = Number(value);
+  return (Number.isNaN(number) || number >= 0) && !/^\s*-\d/.test(String(value));
+};
+
+const choiceValue = (choice) => (choice && typeof choice === "object" ? choice.label : choice);
+const isValidChoice = (choice) => {
+  const value = choiceValue(choice);
+  if (value === undefined || value === null) return false;
+  const text = String(value).trim();
+  if (!text || text === "NaN" || text === "undefined" || text === "null") return false;
+  return isNonNegativeChoice(text);
+};
+
+const uniqueChoices = (choices) => choices.filter((choice, index, array) => (
+  isValidChoice(choice) && array.findIndex((item) => String(choiceValue(item)) === String(choiceValue(choice))) === index
+));
+
+const ensureFourChoices = (answer, choices) => {
+  const answerText = String(answer);
+  const values = uniqueChoices([answerText, ...choices]);
+  const answerIndex = values.findIndex((choice) => String(choiceValue(choice)) === answerText);
+  if (answerIndex > 0) [values[0], values[answerIndex]] = [values[answerIndex], values[0]];
+  if (answerIndex === -1) values.unshift(answerText);
+
   const numeric = Number(answer);
   if (Number.isFinite(numeric)) {
-    [1, -1, 2, 10, -10, 5, -5, 3, -3].forEach((offset) => {
-      const candidate = String(numeric + offset);
-      if (values.length < 4 && numeric + offset > 0 && !values.includes(candidate)) values.push(candidate);
+    [1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 10, -10, 20, -20].forEach((offset) => {
+      const candidate = numeric + offset;
+      const text = String(candidate);
+      if (values.length < 4 && candidate >= 0 && !values.some((choice) => String(choiceValue(choice)) === text)) {
+        values.push(text);
+      }
     });
+    let candidate = 0;
+    while (values.length < 4 && candidate <= numeric + 30) {
+      const text = String(candidate);
+      if (!values.some((choice) => String(choiceValue(choice)) === text)) values.push(text);
+      candidate += 1;
+    }
   }
+
   return values.slice(0, 4);
+};
+
+const choiceSet = (answer, misses) => {
+  return ensureFourChoices(answer, [answer, ...misses].map(String));
 };
 
 const calcMisses = ({ grade, op, a, b, answer }) => {
@@ -105,6 +142,135 @@ const generatedQuick = quickCalcs.flatMap(([grade, unit, prefix, pairs, op]) =>
     });
   })
 );
+
+const gradeUnit = (grade, index) => grades.find((item) => item.id === grade)?.units[index];
+const range = (start, end) => Array.from({ length: end - start + 1 }, (_, index) => start + index);
+
+const makeCalcChoices = (answer, misses) => {
+  return ensureFourChoices(answer, [answer, ...misses].map(String));
+};
+
+const makeRemainderChoices = (quotient, remainder, divisor) => {
+  const answer = `${quotient} あまり ${remainder}`;
+  const candidates = [
+    answer,
+    `${quotient + 1} あまり ${Math.max(0, remainder - divisor)}`,
+    `${Math.max(1, quotient - 1)} あまり ${remainder + divisor}`,
+    `${quotient} あまり ${Math.max(0, remainder - 1)}`,
+    `${quotient + 1} あまり ${remainder}`
+  ];
+  return uniqueChoices(candidates).slice(0, 4);
+};
+
+const buildGeneratedCalcs = ({ prefix, grade, unit, op, pairs }) => pairs.map(([a, b], index) => {
+  const answer = op === "+" ? a + b : op === "-" ? a - b : op === "×" ? a * b : a / b;
+  const misses =
+    op === "+"
+      ? [answer - 10, answer - 1, answer + 1, answer + 10]
+      : op === "-"
+        ? [answer + 10, answer - 1, answer + 2, Math.abs(b - Number(String(a).at(-1) || 0))]
+        : op === "×"
+          ? [a * Math.max(1, b - 1), a * Math.min(9, b + 1), answer + a, answer - b]
+          : [answer - 1, answer + 1, b, Math.max(1, a - b)];
+  const explanation =
+    op === "+"
+      ? `${a} に ${b} をたすと ${answer} です。`
+      : op === "-"
+        ? `${a} から ${b} をひくと ${answer} です。`
+        : op === "×"
+          ? `${a} が ${b} こ分で ${answer} です。`
+          : `${b} のだんで ${a} になる数を考えると ${answer} です。`;
+  return q({
+    id: `${prefix}-${a}-${b}`,
+    grade,
+    unit,
+    modeType: "quick",
+    questionType: "calculation",
+    question: `${a} ${op} ${b} = ?`,
+    choices: makeCalcChoices(answer, misses),
+    answer: String(answer),
+    explanation
+  });
+});
+
+const generatedBaseCalcs = [
+  ...buildGeneratedCalcs({
+    prefix: "g1-add-auto",
+    grade: 1,
+    unit: gradeUnit(1, 0),
+    op: "+",
+    pairs: range(1, 10).flatMap((a) => range(1, 10).map((b) => [a, b]).filter(([x, y]) => x + y <= 20))
+  }),
+  ...buildGeneratedCalcs({
+    prefix: "g1-sub-auto",
+    grade: 1,
+    unit: gradeUnit(1, 1),
+    op: "-",
+    pairs: range(2, 20).flatMap((a) => range(1, Math.min(10, a)).map((b) => [a, b]))
+  }),
+  ...buildGeneratedCalcs({
+    prefix: "g2-kuku-auto",
+    grade: 2,
+    unit: gradeUnit(2, 0),
+    op: "×",
+    pairs: range(1, 9).flatMap((a) => range(1, 9).map((b) => [a, b]))
+  }),
+  ...buildGeneratedCalcs({
+    prefix: "g2-add2-auto",
+    grade: 2,
+    unit: gradeUnit(2, 1),
+    op: "+",
+    pairs: range(10, 89)
+      .flatMap((a) => range(10, 89).map((b) => [a, b]))
+      .filter(([a, b]) => a + b < 100 && ((a * 3 + b) % 17 === 0 || (a % 10) + (b % 10) >= 10))
+      .slice(0, 240)
+  }),
+  ...buildGeneratedCalcs({
+    prefix: "g2-sub2-auto",
+    grade: 2,
+    unit: gradeUnit(2, 2),
+    op: "-",
+    pairs: range(20, 99)
+      .flatMap((a) => range(10, Math.min(89, a - 1)).map((b) => [a, b]))
+      .filter(([a, b]) => a - b > 0 && ((a * 5 + b) % 19 === 0 || (a % 10) < (b % 10)))
+      .slice(0, 240)
+  }),
+  ...buildGeneratedCalcs({
+    prefix: "g3-div-auto",
+    grade: 3,
+    unit: gradeUnit(3, 0),
+    op: "÷",
+    pairs: range(2, 9).flatMap((divisor) => range(1, 9).map((quotient) => [divisor * quotient, divisor]))
+  }),
+  ...buildGeneratedCalcs({
+    prefix: "g3-mul-vertical-auto",
+    grade: 3,
+    unit: gradeUnit(3, 2),
+    op: "×",
+    pairs: [
+      ...range(12, 99).flatMap((a) => range(2, 9).map((b) => [a, b])).filter(([a, b]) => (a + b) % 4 === 0),
+      ...range(102, 199).flatMap((a) => range(2, 6).map((b) => [a, b])).filter(([a, b]) => (a + b) % 9 === 0)
+    ].slice(0, 220)
+  }),
+  ...range(2, 9).flatMap((divisor) =>
+    range(1, 9).flatMap((quotient) =>
+      range(1, divisor - 1).map((remainder) => {
+        const dividend = divisor * quotient + remainder;
+        return q({
+          id: `g3-remain-auto-${divisor}-${quotient}-${remainder}`,
+          grade: 3,
+          unit: gradeUnit(3, 1),
+          modeType: "quick",
+          questionType: "calculation",
+          question: `${dividend} ÷ ${divisor} = ?`,
+          choices: makeRemainderChoices(quotient, remainder, divisor),
+          answer: `${quotient} あまり ${remainder}`,
+          explanation: `${divisor} × ${quotient} = ${divisor * quotient} で、${dividend} をこえません。あまりは ${remainder} です。`
+        });
+      })
+    )
+  )
+];
 
 const word = ({ id, grade, unit, question, answer, explanation, steps }) => q({
   id, grade, unit, modeType: "step", questionType: "word", question, answer, explanation, choices: steps.at(-1).choices, steps
@@ -371,6 +537,18 @@ const clockQuestions = [
   quick({ id: "g3-time-4", grade: 3, unit: "時こくと時間", questionType: "clock", question: "9時20分から9時55分までは何分ですか？", clock: { hour: 9, minute: 20 }, choices: ["25分", "35分", "45分", "55分"], answer: "35分", explanation: "20分から55分までは、55 - 20 = 35分です。" })
 ];
 
+const digitalClockQuestions = [
+  quick({ id: "g1-clock-digital-1", grade: 1, unit: gradeUnit(1, 3), questionType: "clock", question: "この とけいと おなじ じこくは どれですか？", clock: { hour: 3, minute: 0 }, choices: ["03:00", "04:00", "03:30", "12:15"], answer: "03:00", explanation: "みじかい はりが3、ながい はりが12なので 03:00 です。" }),
+  quick({ id: "g1-clock-digital-2", grade: 1, unit: gradeUnit(1, 3), questionType: "clock", question: "この とけいと おなじ じこくは どれですか？", clock: { hour: 7, minute: 0 }, choices: ["07:00", "06:00", "07:30", "12:07"], answer: "07:00", explanation: "みじかい はりが7、ながい はりが12なので 07:00 です。" }),
+  quick({ id: "g1-clock-digital-3", grade: 1, unit: gradeUnit(1, 3), questionType: "clock", question: "この とけいと おなじ じこくは どれですか？", clock: { hour: 9, minute: 0 }, choices: ["09:00", "08:00", "09:30", "12:09"], answer: "09:00", explanation: "みじかい はりが9、ながい はりが12なので 09:00 です。" }),
+  quick({ id: "g1-clock-digital-4", grade: 1, unit: gradeUnit(1, 3), questionType: "clock", question: "この とけいと おなじ じこくは どれですか？", clock: { hour: 12, minute: 0 }, choices: ["12:00", "01:00", "12:30", "06:00"], answer: "12:00", explanation: "みじかい はりも、ながい はりも12をさすので 12:00 です。" }),
+  quick({ id: "g2-clock-digital-1", grade: 2, unit: gradeUnit(2, 5), questionType: "clock", question: "この時計と同じ時こくはどれですか？", clock: { hour: 3, minute: 30 }, choices: ["03:30", "02:30", "03:06", "06:15"], answer: "03:30", explanation: "長いはりが6をさすと30分です。3時30分は 03:30 です。" }),
+  quick({ id: "g2-clock-digital-2", grade: 2, unit: gradeUnit(2, 5), questionType: "clock", question: "この時計と同じ時こくはどれですか？", clock: { hour: 7, minute: 15 }, choices: ["07:15", "07:03", "08:15", "03:35"], answer: "07:15", explanation: "長いはりが3をさすと15分です。7時15分は 07:15 です。" }),
+  quick({ id: "g2-clock-digital-3", grade: 2, unit: gradeUnit(2, 5), questionType: "clock", question: "この時計と同じ時こくはどれですか？", clock: { hour: 2, minute: 45 }, choices: ["02:45", "03:45", "02:09", "09:10"], answer: "02:45", explanation: "長いはりが9をさすと45分です。2時45分は 02:45 です。" }),
+  quick({ id: "g3-time-digital-1", grade: 3, unit: gradeUnit(3, 4), questionType: "clock", question: "2時35分の40分後はどれですか？", clock: { hour: 2, minute: 35 }, choices: ["03:15", "03:05", "02:75", "04:15"], answer: "03:15", explanation: "35分に40分をたすと75分です。60分で1時間なので、3時15分です。" }),
+  quick({ id: "g3-time-digital-2", grade: 3, unit: gradeUnit(3, 4), questionType: "clock", question: "14:05 は、何時何分ですか？", clock: { hour: 14, minute: 5 }, choices: ["午後2時5分", "午前2時5分", "午後4時5分", "午後2時50分"], answer: "午後2時5分", explanation: "14時は午後2時です。05分なので、午後2時5分です。" })
+];
+
 const unitQuestions = [
   quick({ id: "g1-length-1", grade: 1, unit: "長さくらべ", questionType: "unit", question: "えんぴつAは 8cm、えんぴつBは 12cm です。ながいのは どちらですか？", choices: ["えんぴつA", "えんぴつB", "おなじ", "わからない"], answer: "えんぴつB", explanation: "12cmは8cmよりながいです。" }),
   quick({ id: "g1-length-2", grade: 1, unit: "長さくらべ", questionType: "unit", question: "あかいひもは 6cm、あおいひもは 6cm です。どちらが ながいですか？", choices: ["あかいひも", "あおいひも", "おなじ", "どちらもみじかい"], answer: "おなじ", explanation: "どちらも6cmです。おなじながさです。" }),
@@ -414,14 +592,57 @@ const graphQuestions = [
   quick({ id: "g3-graph-4", grade: 3, unit: "表とグラフ", questionType: "graph", question: "みかんは、バナナより何人多いですか？", graph: { title: "すきなくだもの", rows: [["りんご", 5], ["みかん", 8], ["バナナ", 3]] }, choices: ["3人", "4人", "5人", "6人"], answer: "5人", explanation: "みかん8人からバナナ3人をひくと、5人多いです。" })
 ];
 
-export const questions = [
+export function validateQuestion(question) {
+  const issues = [];
+  if (!question?.id) issues.push("idがありません");
+  if (![1, 2, 3].includes(question?.grade)) issues.push("gradeが1〜3ではありません");
+  if (!question?.unit) issues.push("unitがありません");
+  if (!question?.modeType) issues.push("modeTypeがありません");
+  if (!question?.questionType) issues.push("questionTypeがありません");
+  if (!question?.question) issues.push("questionがありません");
+  if (!question?.explanation) issues.push("explanationがありません");
+  validateChoiceList(question?.choices, question?.answer, "choices", issues);
+  if (Array.isArray(question?.steps)) {
+    question.steps.forEach((step, index) => {
+      if (!step?.prompt) issues.push(`steps[${index}]のpromptがありません`);
+      if (!step?.explanation) issues.push(`steps[${index}]のexplanationがありません`);
+      validateChoiceList(step?.choices, step?.answer, `steps[${index}].choices`, issues);
+    });
+  }
+  return issues;
+}
+
+function validateChoiceList(choices, answer, label, issues) {
+  if (!Array.isArray(choices)) {
+    issues.push(`${label}が配列ではありません`);
+    return;
+  }
+  const values = choices.map((choice) => String(choiceValue(choice)));
+  if (choices.length !== 4) issues.push(`${label}が4択ではありません`);
+  if (!values.includes(String(answer))) issues.push(`${label}にanswerが含まれていません`);
+  if (new Set(values).size !== values.length) issues.push(`${label}に重複があります`);
+  if (choices.some((choice) => !isValidChoice(choice))) issues.push(`${label}に不正な値があります`);
+}
+
+const allQuestions = [
   ...generatedQuick,
+  ...generatedBaseCalcs,
   ...wordSteps,
   ...remainders,
   ...verticals,
   ...remainderQuick,
   ...clockQuestions,
+  ...digitalClockQuestions,
   ...unitQuestions,
   ...shapeQuestions,
   ...graphQuestions
 ];
+
+if (import.meta.env?.DEV) {
+  allQuestions.forEach((question) => {
+    const issues = validateQuestion(question);
+    if (issues.length) console.warn(`[question validation] ${question.id || "unknown"}`, issues);
+  });
+}
+
+export const questions = allQuestions;

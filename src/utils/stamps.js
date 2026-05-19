@@ -7,18 +7,28 @@ export const STAMP_DEFINITIONS = [
     style: "star"
   },
   {
+    id: "daily_challenge",
+    name: "きょうのチャレンジ",
+    description: "きょうもクイズをさいごまでできた",
+    icon: "✓",
+    style: "seal",
+    repeatable: true
+  },
+  {
     id: "quick_10",
     name: "10問がんばった",
     description: "サクサク10問モードを1回さいごまでできた",
     icon: "●",
-    style: "medal"
+    style: "medal",
+    repeatable: true
   },
   {
     id: "five_streak",
     name: "5問れんぞく正解",
     description: "1回のチャレンジで5問れんぞく正解した",
     icon: "◎",
-    style: "flower"
+    style: "flower",
+    repeatable: true
   },
   {
     id: "perfect_10",
@@ -32,14 +42,16 @@ export const STAMP_DEFINITIONS = [
     name: "じっくりチャレンジ",
     description: "じっくり5問モードを1回さいごまでできた",
     icon: "◆",
-    style: "seal"
+    style: "seal",
+    repeatable: true
   },
   {
     id: "weak_clear",
     name: "苦手こくふく",
     description: "苦手問題を1問以上こくふくした",
     icon: "◎",
-    style: "flower"
+    style: "flower",
+    repeatable: true
   },
   {
     id: "kuku_master",
@@ -60,14 +72,16 @@ export const STAMP_DEFINITIONS = [
     name: "こつこつ学習",
     description: "3日分、学習をつづけた",
     icon: "✓",
-    style: "star"
+    style: "star",
+    repeatable: true
   },
   {
     id: "focus_3sessions",
     name: "すごい集中力",
     description: "1日に3回、さいごまでできた",
     icon: "!",
-    style: "gold"
+    style: "gold",
+    repeatable: true
   }
 ];
 
@@ -79,6 +93,8 @@ export const normalizeEarnedStamp = (stamp) => {
   return {
     stampId: stamp.id,
     earnedAt: stamp.earnedAt || stamp.date || new Date().toISOString(),
+    lastEarnedAt: stamp.lastEarnedAt || stamp.earnedAt || stamp.date || new Date().toISOString(),
+    count: Number(stamp.count || 1),
     relatedGrade: stamp.relatedGrade,
     relatedUnit: stamp.relatedUnit
   };
@@ -86,34 +102,39 @@ export const normalizeEarnedStamp = (stamp) => {
 
 export const evaluateNewStamps = ({ currentEntry, history, existingStamps, maxStreak = 0, masteredCount = 0 }) => {
   const earnedIds = new Set(existingStamps.map((stamp) => normalizeEarnedStamp(stamp)?.stampId).filter(Boolean));
-  const rate = currentEntry.total ? Math.round((currentEntry.correct / currentEntry.total) * 100) : 0;
   const today = currentEntry.date.slice(0, 10);
   const historyWithCurrent = [currentEntry, ...history];
   const learnedDays = new Set(historyWithCurrent.map((item) => item.date?.slice(0, 10)).filter(Boolean));
   const todaySessions = historyWithCurrent.filter((item) => item.date?.slice(0, 10) === today).length;
-  const unit = currentEntry.unit || "";
 
   const candidates = [
     ["first_challenge", history.length === 0],
+    ["daily_challenge", true],
     ["quick_10", currentEntry.modeType === "quick" && currentEntry.total >= 10],
     ["five_streak", maxStreak >= 5],
-    ["perfect_10", currentEntry.modeType === "quick" && currentEntry.total === 10 && currentEntry.correct === 10],
     ["step_challenge", currentEntry.modeType === "step" && currentEntry.total >= 5],
     ["weak_clear", masteredCount > 0],
-    ["kuku_master", unit === "九九" && rate >= 80],
-    ["division_challenger", (unit.includes("わり算") || unit.includes("あまりのあるわり算")) && rate >= 80],
     ["steady_3days", learnedDays.size >= 3],
     ["focus_3sessions", todaySessions >= 3]
   ];
 
   return candidates
-    .filter(([stampId, ok]) => ok && !earnedIds.has(stampId))
-    .map(([stampId]) => ({
-      stampId,
-      earnedAt: currentEntry.date,
-      relatedGrade: currentEntry.grade,
-      relatedUnit: currentEntry.unit
-    }));
+    .filter(([stampId, ok]) => {
+      const definition = getStampDefinition(stampId);
+      return ok && (definition?.repeatable || !earnedIds.has(stampId));
+    })
+    .map(([stampId]) => {
+      const definition = getStampDefinition(stampId);
+      return {
+        stampId,
+        earnedAt: currentEntry.date,
+        lastEarnedAt: currentEntry.date,
+        count: 1,
+        repeatable: Boolean(definition?.repeatable),
+        relatedGrade: currentEntry.grade,
+        relatedUnit: currentEntry.unit
+      };
+    });
 };
 
 export const hydrateStamp = (earnedStamp) => {

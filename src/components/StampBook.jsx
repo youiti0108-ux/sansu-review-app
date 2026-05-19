@@ -30,7 +30,12 @@ export default function StampBook({ stamps, onBack }) {
               <strong><RubyText>{definition.name}</RubyText></strong>
               <p><RubyText>{definition.description}</RubyText></p>
               <small>
-                {earned ? `もらった日: ${formatDate(earned.earnedAt)}` : "まだです"}
+                {earned ? (
+                  <>
+                    {`もらった日: ${formatDate(earned.lastEarnedAt || earned.earnedAt)}`}
+                    {Number(earned.count || 1) > 1 && <span className="stamp-count">{earned.count}回</span>}
+                  </>
+                ) : "まだです"}
               </small>
             </article>
           );

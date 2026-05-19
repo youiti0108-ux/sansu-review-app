@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ClockFace from "./ClockFace";
 import GraphDisplay from "./GraphDisplay";
 import MemoBoard from "./MemoBoard";
@@ -21,17 +21,39 @@ export default function QuizScreen({ questions, modeType, weakMode = false, onFi
   const [correctCount, setCorrectCount] = useState(0);
   const [wrongItems, setWrongItems] = useState([]);
   const [masteredCount, setMasteredCount] = useState(0);
+  const [reviewingCount, setReviewingCount] = useState(0);
+  const [weakCorrectCount, setWeakCorrectCount] = useState(0);
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
   const [questionHadMistake, setQuestionHadMistake] = useState(false);
+  const [hintLevel, setHintLevel] = useState(0);
+  const [questionHintLevel, setQuestionHintLevel] = useState(0);
+  const [hintStats, setHintStats] = useState({
+    hintUsedCount: 0,
+    hint1UsedCount: 0,
+    hint2UsedCount: 0,
+    noHintCorrectCount: 0,
+    hintCorrectCount: 0
+  });
   const [spark, setSpark] = useState(false);
-
+  const feedbackRef = useRef(null);
+  const answerRecordsRef = useRef([]);
   const current = questions[index];
   const isStep = modeType === "step" && current?.steps?.length;
   const activeStep = isStep ? current.steps[stepIndex] : null;
   const prompt = activeStep?.prompt || current?.question;
-  const choices = (activeStep?.choices || current?.choices || []).slice(0, 4);
   const answer = activeStep?.answer || current?.answer;
+  const rawChoices = (activeStep?.choices || current?.choices || []).slice(0, 4);
+  const choices = useMemo(
+    () => shuffleChoices(rawChoices, answer),
+    [current?.id, index, stepIndex, answer]
+  );
+  const hints = getHints(current, activeStep);
+
+  useEffect(() => {
+    if (!feedback) return;
+    feedbackRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [feedback]);
 
   if (!current) {
     return (
@@ -49,6 +71,7 @@ export default function QuizScreen({ questions, modeType, weakMode = false, onFi
     const value = choiceValue(choice);
     const ok = value === answer;
     const nextStreak = ok ? streak + 1 : 0;
+    const usedHintLevel = Math.max(hintLevel, questionHintLevel);
 
     setSelected(value);
     setFeedback({
@@ -58,6 +81,20 @@ export default function QuizScreen({ questions, modeType, weakMode = false, onFi
     });
     setStreak(nextStreak);
     setMaxStreak((currentMax) => Math.max(currentMax, nextStreak));
+    answerRecordsRef.current = [
+      ...answerRecordsRef.current,
+      {
+        questionId: current.id,
+        grade: current.grade,
+        unit: current.unit,
+        correct: ok,
+        selectedAnswer: value,
+        answer,
+        hintLevelUsed: usedHintLevel,
+        stepIndex: isStep ? stepIndex : null,
+        answeredAt: new Date().toISOString()
+      }
+    ];
 
     if (ok) {
       playCorrectSound();
@@ -74,9 +111,17 @@ export default function QuizScreen({ questions, modeType, weakMode = false, onFi
       stepIndex: isStep ? stepIndex : null,
       stepLabel: activeStep?.label,
       stepPrompt: activeStep?.prompt,
-      stepAnswer: activeStep?.answer
+      stepAnswer: activeStep?.answer,
+      hintLevelUsed: usedHintLevel
     });
-    setWrongItems((items) => [...items, { question: current, selected: value, stepIndex: isStep ? stepIndex : null }]);
+    setWrongItems((items) => [...items, { question: current, selected: value, stepIndex: isStep ? stepIndex : null, hintLevelUsed: usedHintLevel }]);
+  };
+
+  const showHint = (level) => {
+    if (selected) return;
+    playClickSound();
+    setHintLevel((currentLevel) => Math.max(currentLevel, level));
+    setQuestionHintLevel((currentLevel) => Math.max(currentLevel, level));
   };
 
   const next = () => {
@@ -84,29 +129,59 @@ export default function QuizScreen({ questions, modeType, weakMode = false, onFi
     const stepDone = !isStep || stepIndex === current.steps.length - 1;
     const solvedQuestion = feedback?.ok && stepDone && !questionHadMistake;
     const nextCorrectCount = correctCount + (solvedQuestion ? 1 : 0);
-    const nextMasteredCount = masteredCount + (weakMode && solvedQuestion ? 1 : 0);
+    const finalHintLevel = questionHintLevel;
+    const nextHintStats = { ...hintStats };
+    let nextMasteredCount = masteredCount;
+    let nextReviewingCount = reviewingCount;
+    let nextWeakCorrectCount = weakCorrectCount;
+
+    if (stepDone) {
+      if (finalHintLevel > 0) nextHintStats.hintUsedCount += 1;
+      if (finalHintLevel >= 1) nextHintStats.hint1UsedCount += 1;
+      if (finalHintLevel >= 2) nextHintStats.hint2UsedCount += 1;
+      if (solvedQuestion) {
+        if (finalHintLevel > 0) nextHintStats.hintCorrectCount += 1;
+        else nextHintStats.noHintCorrectCount += 1;
+      }
+      setHintStats(nextHintStats);
+    }
 
     if (solvedQuestion) {
       setCorrectCount(nextCorrectCount);
       if (weakMode) {
-        markCorrect(current.id);
+        const reviewResult = markCorrect(current.id);
+        nextWeakCorrectCount += 1;
+        if (reviewResult?.mastered) {
+          nextMasteredCount += 1;
+        } else {
+          nextReviewingCount += 1;
+        }
+        setWeakCorrectCount(nextWeakCorrectCount);
         setMasteredCount(nextMasteredCount);
+        setReviewingCount(nextReviewingCount);
       }
     }
 
     if (isStep && stepIndex < current.steps.length - 1) {
       setStepIndex((n) => n + 1);
+      setHintLevel(0);
     } else if (index < questions.length - 1) {
       setIndex((n) => n + 1);
       setStepIndex(0);
       setQuestionHadMistake(false);
+      setHintLevel(0);
+      setQuestionHintLevel(0);
     } else {
       onFinish({
         total: questions.length,
         correct: nextCorrectCount,
         wrongItems,
         masteredCount: nextMasteredCount,
-        maxStreak: Math.max(maxStreak, streak)
+        reviewingCount: nextReviewingCount,
+        weakCorrectCount: nextWeakCorrectCount,
+        maxStreak: Math.max(maxStreak, streak),
+        answerRecords: answerRecordsRef.current,
+        ...nextHintStats
       });
     }
     setSelected(null);
@@ -150,6 +225,22 @@ export default function QuizScreen({ questions, modeType, weakMode = false, onFi
         {isStep && <p className="step-prompt"><RubyText>{prompt}</RubyText></p>}
       </section>
 
+      <section className="hint-box">
+        <strong><RubyText>ヒント</RubyText></strong>
+        {hintLevel >= 1 && <p><RubyText>{hints[0]}</RubyText></p>}
+        {hintLevel >= 2 && <p><RubyText>{hints[1]}</RubyText></p>}
+        {!selected && (
+          <div className="hint-actions">
+            <button className="secondary" disabled={hintLevel >= 1} onClick={() => showHint(1)}>
+              <RubyText>ヒント1を見る</RubyText>
+            </button>
+            <button className="secondary" disabled={hintLevel < 1 || hintLevel >= 2} onClick={() => showHint(2)}>
+              <RubyText>ヒント2を見る</RubyText>
+            </button>
+          </div>
+        )}
+      </section>
+
       <section className="choice-grid">
         {choices.map((choice, choiceIndex) => {
           const value = choiceValue(choice);
@@ -164,7 +255,7 @@ export default function QuizScreen({ questions, modeType, weakMode = false, onFi
       </section>
 
       {feedback && (
-        <section className={`feedback ${feedback.ok ? "ok fade-in" : "try fade-in"}`}>
+        <section ref={feedbackRef} className={`feedback ${feedback.ok ? "ok fade-in" : "try fade-in"}`}>
           {feedback.ok && <div className="hanamaru-pop" aria-hidden="true">◎</div>}
           <strong><RubyText>{feedback.text}</RubyText></strong>
           <p><RubyText>{feedback.explanation}</RubyText></p>
@@ -177,6 +268,62 @@ export default function QuizScreen({ questions, modeType, weakMode = false, onFi
       <MemoBoard grid={current.questionType === "vertical"} />
     </main>
   );
+}
+
+function shuffleChoices(choices, answer) {
+  const answerText = String(answer);
+  const values = choices.some((choice) => String(choiceValue(choice)) === answerText)
+    ? choices
+    : [...choices.slice(0, 3), answerText];
+  const uniqueValues = values.filter((choice, index, array) => (
+    array.findIndex((item) => String(choiceValue(item)) === String(choiceValue(choice))) === index
+  ));
+  const answerChoice = uniqueValues.find((choice) => String(choiceValue(choice)) === answerText);
+  if (!answerChoice) return fisherYates(uniqueValues).slice(0, 4);
+
+  const distractors = uniqueValues.filter((choice) => String(choiceValue(choice)) !== answerText);
+  return fisherYates([answerChoice, ...distractors]).slice(0, 4);
+}
+
+function fisherYates(items) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function getHints(question, step) {
+  const text = `${step?.prompt || ""} ${question?.question || ""}`;
+  const explanation = step?.explanation || question?.explanation || "どんな式になるかを先に考えてみよう。";
+  const type = question?.questionType;
+
+  if (type === "vertical") {
+    return ["一の位から順番に見よう。", "くり上がりやくり下がりの数を小さく書いて考えよう。"];
+  }
+  if (type === "clock") {
+    return ["短いはりは時、長いはりは分を表します。", "長いはりが12なら00分、6なら30分です。"];
+  }
+  if (type === "shape") {
+    return ["辺の数や角の形を見よう。", "まる、さんかく、しかくのちがいをたしかめよう。"];
+  }
+  if (type === "graph") {
+    return ["表やグラフの一番大きい数を見よう。", "くらべたいものの数をもう一度たしかめよう。"];
+  }
+  if (text.includes("÷")) {
+    return ["かけ算の九九を思い出そう。", "わる数の段で、わられる数に近い数をさがそう。"];
+  }
+  if (text.includes("×")) {
+    return ["同じ数が何こ分あるかを考えよう。", "九九を使って、一つずつたしかめよう。"];
+  }
+  if (text.includes("-")) {
+    return ["のこりを考えるときは、ひき算を使います。", "大きい数から小さい数をひいてみよう。"];
+  }
+  if (text.includes("+")) {
+    return ["ふえたときや、ぜんぶを考えるときは、たし算を使います。", "10のまとまりを作れるか見てみよう。"];
+  }
+  return ["問題文の大事な数に注目しよう。", explanation];
 }
 
 function QuestionVisual({ question, stepIndex }) {

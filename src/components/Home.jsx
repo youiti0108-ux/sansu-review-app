@@ -1,6 +1,6 @@
 import RubyText from "./RubyText";
 
-export default function Home({ onNavigate, soundOn, onToggleSound }) {
+export default function Home({ onNavigate, users = [], currentUser, onUserChange, soundOn, onToggleSound }) {
   const cards = [
     ["grade", 1, "1年生", "たしざん・ひきざんからはじめよう"],
     ["grade", 2, "2年生", "九九と2けた計算にチャレンジ"],
@@ -18,7 +18,23 @@ export default function Home({ onNavigate, soundOn, onToggleSound }) {
         <div>
           <p className="eyebrow">小学1〜3年生</p>
           <h1><RubyText>さんすう総復習</RubyText></h1>
+          <p><RubyText>{`${currentUser?.name || "ゲスト"}の さんすう`}</RubyText></p>
           <p><RubyText>紙を使わず、計算・文章題・筆算をアプリで練習できます。</RubyText></p>
+          <div className="user-switch" aria-label="ユーザーをえらぶ">
+            <span><RubyText>ユーザー</RubyText></span>
+            <div>
+              {users.map((user) => (
+                <button
+                  className={user.id === currentUser?.id ? "active" : ""}
+                  key={user.id}
+                  onClick={() => onUserChange(user.id)}
+                  type="button"
+                >
+                  <RubyText>{user.name}</RubyText>
+                </button>
+              ))}
+            </div>
+          </div>
           <button className="sound-toggle" onClick={onToggleSound}>
             <RubyText>{`音：${soundOn ? "オン" : "オフ"}`}</RubyText>
           </button>

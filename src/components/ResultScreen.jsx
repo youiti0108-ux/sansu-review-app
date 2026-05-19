@@ -4,7 +4,12 @@ import RubyText from "./RubyText";
 import { playClearSound } from "../utils/sound";
 
 export default function ResultScreen({ result, stamps, awards = [], unit, onRetry, onUnits, onHome, onWeak }) {
-  const rate = Math.round((result.correct / Math.max(result.total, 1)) * 100);
+  const rate = Math.round((Number(result.correct) / Math.max(Number(result.total), 1)) * 100);
+  const medal = getMedal(rate, result);
+  const hintUsedCount = Number(result.hintUsedCount) || 0;
+  const hint2UsedCount = Number(result.hint2UsedCount) || 0;
+  const noHintCorrectCount = Number(result.noHintCorrectCount) || 0;
+  const hintCorrectCount = Number(result.hintCorrectCount) || 0;
   const message =
     rate === 100
       ? "すごい！まんてんです！"
@@ -22,7 +27,32 @@ export default function ResultScreen({ result, stamps, awards = [], unit, onRetr
         <p className="eyebrow"><RubyText>結果</RubyText></p>
         <h1><RubyText>{message}</RubyText></h1>
         <div className="score-circle">{result.correct}/{result.total}</div>
+        {medal && (
+          <div className={`medal-result ${medal.className}`}>
+            <span aria-hidden="true">{medal.icon}</span>
+            <strong><RubyText>{medal.label}</RubyText></strong>
+            <small><RubyText>{medal.message}</RubyText></small>
+          </div>
+        )}
+        {(hintUsedCount > 0 || noHintCorrectCount > 0 || hintCorrectCount > 0) && (
+          <div className="hint-summary">
+            <p><RubyText>{`ヒントなしで ${noHintCorrectCount}問 せいかい！`}</RubyText></p>
+            <p><RubyText>{`ヒントを見て ${hintCorrectCount}問 できたよ`}</RubyText></p>
+            <p><RubyText>{`ヒントを使った問題 ${hintUsedCount}問`}</RubyText></p>
+            {hint2UsedCount > 0 && <p><RubyText>{`ヒント2まで見た問題 ${hint2UsedCount}問`}</RubyText></p>}
+          </div>
+        )}
         <p><RubyText>正答率</RubyText> {rate}% ・ <RubyText>{unit}</RubyText></p>
+        {result.weakCorrectCount > 0 && (
+          <p className="conquered-note">
+            <RubyText>{`苦手問題に ${result.weakCorrectCount}問 正解しました。`}</RubyText>
+          </p>
+        )}
+        {result.reviewingCount > 0 && (
+          <p className="conquered-note">
+            <RubyText>{`${result.reviewingCount}問は こくふくまで あと少しです。`}</RubyText>
+          </p>
+        )}
         {result.masteredCount > 0 && (
           <p className="conquered-note"><RubyText>{`苦手問題を ${result.masteredCount}問 こくふくしました。`}</RubyText></p>
         )}
@@ -51,7 +81,8 @@ export default function ResultScreen({ result, stamps, awards = [], unit, onRetr
             {result.wrongItems.map((item, idx) => (
               <li key={`${item.question.id}-${idx}`}>
                 <RubyText>{item.question.question}</RubyText>
-                <span><RubyText>選んだ答え</RubyText>: {item.selected}</span>
+                <span><RubyText>えらんだ答え</RubyText>: {item.selected}</span>
+                {Number(item.hintLevelUsed) > 0 && <span><RubyText>{`使ったヒント: ${item.hintLevelUsed}`}</RubyText></span>}
               </li>
             ))}
           </ul>
@@ -68,4 +99,21 @@ export default function ResultScreen({ result, stamps, awards = [], unit, onRetr
       </div>
     </main>
   );
+}
+
+function getMedal(rate, result = {}) {
+  const hintUsedCount = Number(result.hintUsedCount) || 0;
+  if (rate === 100 && hintUsedCount === 0) {
+    return { className: "gold", icon: "🏆", label: "金トロフィー", message: "ヒントなしでまんてん！すばらしいです。" };
+  }
+  if (rate === 100) {
+    return { className: "silver", icon: "🥈", label: "銀メダル", message: "ヒントを使って、さいごまでよく考えました！" };
+  }
+  if (rate >= 90) {
+    return { className: "silver", icon: "🥈", label: "銀メダル", message: "あと少しでまんてんです。" };
+  }
+  if (rate >= 80) {
+    return { className: "bronze", icon: "🥉", label: "銅メダル", message: "よく考えて進められました。" };
+  }
+  return null;
 }

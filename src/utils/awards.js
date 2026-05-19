@@ -82,21 +82,16 @@ export const hydrateAward = (earnedAward) => {
 export const evaluateNewAwards = ({ currentEntry, history, existingAwards, masteredCount = 0 }) => {
   const earnedIds = new Set(existingAwards.map((award) => normalizeEarnedAward(award)?.awardId).filter(Boolean));
   const rate = currentEntry.total ? Math.round((currentEntry.correct / currentEntry.total) * 100) : 0;
-  const today = currentEntry.date.slice(0, 10);
   const historyWithCurrent = [currentEntry, ...history];
   const learnedDays = new Set(historyWithCurrent.map((item) => item.date?.slice(0, 10)).filter(Boolean));
-  const todaySessions = historyWithCurrent.filter((item) => item.date?.slice(0, 10) === today).length;
   const unit = currentEntry.unit || "";
 
   const candidates = [
-    ["first_finish", history.length === 0],
     ["perfect_score", currentEntry.modeType === "quick" && currentEntry.total === 10 && currentEntry.correct === 10],
-    ["step_thinker", currentEntry.modeType === "step" && currentEntry.total >= 5],
     ["weak_conquer", masteredCount > 0],
     ["kuku_master_award", unit === "九九" && rate >= 80],
     ["division_award", (unit.includes("わり算") || unit.includes("あまりのあるわり算")) && rate >= 80],
-    ["steady_award", learnedDays.size >= 3],
-    ["focus_award", todaySessions >= 3]
+    ["steady_award", learnedDays.size >= 3]
   ];
 
   return candidates

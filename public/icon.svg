@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="算数そうふくしゅうアプリ">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fff7bd"/>
+      <stop offset="1" stop-color="#9be7d5"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="104" fill="url(#bg)"/>
+  <circle cx="382" cy="126" r="54" fill="#ffd45c"/>
+  <path d="M382 54l15 42 44-4-34 28 17 41-42-23-42 23 17-41-34-28 44 4z" fill="#fff7d1"/>
+  <rect x="76" y="112" width="290" height="288" rx="38" fill="#fffdf4" stroke="#205c55" stroke-width="18"/>
+  <path d="M124 190h194M124 260h194M124 330h132" stroke="#b8d4d0" stroke-width="18" stroke-linecap="round"/>
+  <text x="138" y="178" font-size="70" font-weight="900" fill="#1f6f65" font-family="Arial, sans-serif">1+2</text>
+  <text x="138" y="310" font-size="86" font-weight="900" fill="#e56f4b" font-family="Arial, sans-serif">=3</text>
+  <circle cx="362" cy="356" r="64" fill="#ff8fb3" stroke="#ffffff" stroke-width="14"/>
+  <path d="M334 356l18 18 40-44" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
