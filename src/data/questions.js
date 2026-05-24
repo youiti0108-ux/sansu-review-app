@@ -146,6 +146,37 @@ const generatedQuick = quickCalcs.flatMap(([grade, unit, prefix, pairs, op]) =>
 const gradeUnit = (grade, index) => grades.find((item) => item.id === grade)?.units[index];
 const range = (start, end) => Array.from({ length: end - start + 1 }, (_, index) => start + index);
 
+const uniquePairs = (pairs) => {
+  const seen = new Set();
+  return pairs.filter(([a, b]) => {
+    const key = `${a}-${b}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const additionPairsTo10 = range(0, 10).flatMap((a) => range(0, 10).map((b) => [a, b]));
+const subtractionPairsFromAddition = uniquePairs(
+  additionPairsTo10.flatMap(([a, b]) => {
+    const total = a + b;
+    return [
+      [total, a],
+      [total, b]
+    ];
+  })
+);
+const kukuPairs = range(1, 9).flatMap((a) => range(1, 9).map((b) => [a, b]));
+const divisionPairsFromKuku = uniquePairs(
+  kukuPairs.flatMap(([a, b]) => {
+    const product = a * b;
+    return [
+      [product, a],
+      [product, b]
+    ];
+  })
+);
+
 const makeCalcChoices = (answer, misses) => {
   return ensureFourChoices(answer, [answer, ...misses].map(String));
 };
@@ -195,25 +226,25 @@ const buildGeneratedCalcs = ({ prefix, grade, unit, op, pairs }) => pairs.map(([
 
 const generatedBaseCalcs = [
   ...buildGeneratedCalcs({
-    prefix: "g1-add-auto",
+    prefix: "g1-add",
     grade: 1,
     unit: gradeUnit(1, 0),
     op: "+",
-    pairs: range(1, 10).flatMap((a) => range(1, 10).map((b) => [a, b]).filter(([x, y]) => x + y <= 20))
+    pairs: additionPairsTo10
   }),
   ...buildGeneratedCalcs({
-    prefix: "g1-sub-auto",
+    prefix: "g1-sub",
     grade: 1,
     unit: gradeUnit(1, 1),
     op: "-",
-    pairs: range(2, 20).flatMap((a) => range(1, Math.min(10, a)).map((b) => [a, b]))
+    pairs: subtractionPairsFromAddition
   }),
   ...buildGeneratedCalcs({
-    prefix: "g2-kuku-auto",
+    prefix: "g2-kuku",
     grade: 2,
     unit: gradeUnit(2, 0),
     op: "×",
-    pairs: range(1, 9).flatMap((a) => range(1, 9).map((b) => [a, b]))
+    pairs: kukuPairs
   }),
   ...buildGeneratedCalcs({
     prefix: "g2-add2-auto",
@@ -236,11 +267,11 @@ const generatedBaseCalcs = [
       .slice(0, 240)
   }),
   ...buildGeneratedCalcs({
-    prefix: "g3-div-auto",
+    prefix: "g3-div",
     grade: 3,
     unit: gradeUnit(3, 0),
     op: "÷",
-    pairs: range(2, 9).flatMap((divisor) => range(1, 9).map((quotient) => [divisor * quotient, divisor]))
+    pairs: divisionPairsFromKuku
   }),
   ...buildGeneratedCalcs({
     prefix: "g3-mul-vertical-auto",
@@ -268,6 +299,370 @@ const generatedBaseCalcs = [
           explanation: `${divisor} × ${quotient} = ${divisor * quotient} で、${dividend} をこえません。あまりは ${remainder} です。`
         });
       })
+    )
+  )
+];
+
+const wordChoiceSet = (answer, suffix, misses) => {
+  const answerText = `${answer}${suffix}`;
+  const values = uniqueChoices(
+    [
+      answer,
+      ...misses,
+      answer - 1,
+      answer + 1,
+      answer - 2,
+      answer + 2,
+      answer + 3,
+      0
+    ]
+      .filter((value) => Number.isFinite(value) && value >= 0)
+      .map((value) => `${value}${suffix}`)
+  );
+  if (!values.some((choice) => String(choiceValue(choice)) === answerText)) values.unshift(answerText);
+  return values.slice(0, 4);
+};
+
+const rawChoices = (answer, candidates) => {
+  const values = uniqueChoices([answer, ...candidates]);
+  if (!values.some((choice) => String(choiceValue(choice)) === String(answer))) values.unshift(answer);
+  return values.slice(0, 4);
+};
+
+const remainderWordChoices = ({ quotient, remainder, divisor, groupSuffix, remainderSuffix }) => {
+  const answer = `${quotient}${groupSuffix} あまり${remainder}${remainderSuffix}`;
+  const values = [answer];
+  [-1, 1, 2].forEach((qOffset) => {
+    [-1, 0, 1, divisor].forEach((rOffset) => {
+      const nextQuotient = quotient + qOffset;
+      const nextRemainder = remainder + rOffset;
+      if (nextQuotient >= 0 && nextRemainder >= 0 && nextRemainder < divisor) {
+        values.push(`${nextQuotient}${groupSuffix} あまり${nextRemainder}${remainderSuffix}`);
+      }
+    });
+  });
+  values.push(`${quotient + 1}${groupSuffix} あまり${Math.max(0, remainder - 1)}${remainderSuffix}`);
+  return rawChoices(answer, values);
+};
+
+const wordQuick = ({ id, grade, unit, question, answer, choices, explanation, hints }) => q({
+  id,
+  grade,
+  unit,
+  modeType: "quick",
+  questionType: "word",
+  question,
+  choices,
+  answer,
+  explanation,
+  hints
+});
+
+const g1AddWordItems = [
+  { id: "apple", name: "りんご", suffix: "こ", action: "もらいました" },
+  { id: "candy", name: "あめ", suffix: "こ", action: "もらいました" },
+  { id: "pencil", name: "えんぴつ", suffix: "本", action: "ふえました" }
+];
+
+const g1SubWordItems = [
+  { id: "candy", name: "あめ", suffix: "こ", action: "たべました" },
+  { id: "pencil", name: "えんぴつ", suffix: "本", action: "つかいました" },
+  { id: "sticker", name: "シール", suffix: "まい", action: "あげました" }
+];
+
+const g2MulWordItems = [
+  { id: "plate-apple", one: "1さらに りんごが", itemSuffix: "こ", groups: "さら" },
+  { id: "bag-candy", one: "1ふくろに あめが", itemSuffix: "こ", groups: "ふくろ" },
+  { id: "box-pencil", one: "1はこに えんぴつが", itemSuffix: "本", groups: "はこ" }
+];
+
+const g3DivWordItems = [
+  { id: "candy-people", name: "あめ", suffix: "こ", divisorLabel: "人", resultSuffix: "こ", action: "同じ数ずつ分けます。1人分は何こですか？" },
+  { id: "cookie-bag", name: "クッキー", suffix: "こ", divisorLabel: "こずつ", resultSuffix: "ふくろ", action: "ふくろに入れます。何ふくろできますか？" },
+  { id: "pencil-bundle", name: "えんぴつ", suffix: "本", divisorLabel: "本ずつ", resultSuffix: "たば", action: "たばにします。何たばできますか？" }
+];
+
+const g3RemainderWordItems = [
+  { id: "cookie-bag", name: "クッキー", suffix: "こ", divisorLabel: "こずつ", groupSuffix: "ふくろ", remainderSuffix: "こ", action: "ふくろに入れます" },
+  { id: "pencil-bundle", name: "えんぴつ", suffix: "本", divisorLabel: "本ずつ", groupSuffix: "たば", remainderSuffix: "本", action: "たばにします" }
+];
+
+const generatedWordProblems = [
+  ...g1AddWordItems.flatMap((item) =>
+    additionPairsTo10
+      .filter(([a, b]) => a > 0 && b > 0)
+      .map(([a, b]) => {
+        const answer = a + b;
+        return wordQuick({
+          id: `g1-word-add-${a}-${b}-${item.id}`,
+          grade: 1,
+          unit: gradeUnit(1, 2),
+          question: `${item.name}が ${a}${item.suffix} あります。${b}${item.suffix} ${item.action}。ぜんぶで なん${item.suffix} ですか？`,
+          choices: wordChoiceSet(answer, item.suffix, [answer - 1, answer + 1, answer + 2]),
+          answer: `${answer}${item.suffix}`,
+          explanation: `ふえたので、たし算を使います。${a} + ${b} = ${answer} です。`,
+          hints: ["ふえたかどうかを見ます。", "ぜんぶでいくつかは、たし算で考えます。"]
+        });
+      })
+  ),
+  ...g1SubWordItems.flatMap((item) =>
+    subtractionPairsFromAddition
+      .filter(([total, used]) => total > 0 && used > 0)
+      .map(([total, used]) => {
+        const answer = total - used;
+        return wordQuick({
+          id: `g1-word-sub-${total}-${used}-${item.id}`,
+          grade: 1,
+          unit: gradeUnit(1, 2),
+          question: `${item.name}が ${total}${item.suffix} あります。${used}${item.suffix} ${item.action}。のこりは なん${item.suffix} ですか？`,
+          choices: wordChoiceSet(answer, item.suffix, [answer - 1, answer + 1, answer + 2]),
+          answer: `${answer}${item.suffix}`,
+          explanation: `へったので、ひき算を使います。${total} - ${used} = ${answer} です。`,
+          hints: ["へったかどうかを見ます。", "のこりを考えるときは、ひき算で考えます。"]
+        });
+      })
+  ),
+  ...g2MulWordItems.flatMap((item) =>
+    kukuPairs.filter(([a, b]) => a >= 2 && b >= 2).map(([a, b]) => {
+      const answer = a * b;
+      return wordQuick({
+        id: `g2-word-mul-${a}-${b}-${item.id}`,
+        grade: 2,
+        unit: gradeUnit(2, 4),
+        question: `${item.one} ${a}${item.itemSuffix} あります。同じものが ${b}${item.groups} あります。ぜんぶで なん${item.itemSuffix} ですか？`,
+        choices: wordChoiceSet(answer, item.itemSuffix, [a * Math.max(1, b - 1), a * Math.min(9, b + 1), answer + a]),
+        answer: `${answer}${item.itemSuffix}`,
+        explanation: `同じ数が何こ分かを考えるので、かけ算を使います。${a} × ${b} = ${answer} です。`,
+        hints: ["同じ数が何こ分あるかを見ます。", "同じ数がくり返されるときは、かけ算で考えます。"]
+      });
+    })
+  ),
+  ...g3DivWordItems.flatMap((item) =>
+    divisionPairsFromKuku.filter(([dividend, divisor]) => divisor >= 2 && dividend / divisor >= 2).map(([dividend, divisor]) => {
+      const answer = dividend / divisor;
+      return wordQuick({
+        id: `g3-word-div-${dividend}-${divisor}-${item.id}`,
+        grade: 3,
+        unit: gradeUnit(3, 3),
+        question: `${item.name}が ${dividend}${item.suffix} あります。${divisor}${item.divisorLabel} ${item.action}`,
+        choices: wordChoiceSet(answer, item.resultSuffix, [answer - 1, answer + 1, answer + 2]),
+        answer: `${answer}${item.resultSuffix}`,
+        explanation: `同じ数ずつ分けるので、わり算を使います。${dividend} ÷ ${divisor} = ${answer} です。`,
+        hints: ["同じ数ずつ分けるかを見ます。", "わる数の九九を思い出して考えます。"]
+      });
+    })
+  ),
+  ...g3RemainderWordItems.flatMap((item) =>
+    range(2, 9).flatMap((divisor) =>
+      range(2, 9).flatMap((quotient) =>
+        range(1, divisor - 1).map((remainder) => {
+          const dividend = divisor * quotient + remainder;
+          const answer = `${quotient}${item.groupSuffix} あまり${remainder}${item.remainderSuffix}`;
+          return wordQuick({
+            id: `g3-word-rem-${dividend}-${divisor}-${remainder}-${item.id}`,
+            grade: 3,
+            unit: gradeUnit(3, 1),
+            question: `${item.name}が ${dividend}${item.suffix} あります。${divisor}${item.divisorLabel} ${item.action}。何${item.groupSuffix}できて、何${item.remainderSuffix}あまりますか？`,
+            choices: remainderWordChoices({ quotient, remainder, divisor, groupSuffix: item.groupSuffix, remainderSuffix: item.remainderSuffix }),
+            answer,
+            explanation: `${divisor} × ${quotient} = ${divisor * quotient} で、${dividend}をこえません。${dividend} - ${divisor * quotient} = ${remainder} なので、${answer}です。`,
+            hints: ["こえない九九をさがします。", "あまりは、わる数より小さくなります。"]
+          });
+        })
+      )
+    )
+  )
+];
+
+const generatedStepWordProblems = [
+  ...g1AddWordItems.flatMap((item) =>
+    additionPairsTo10
+      .filter(([a, b]) => a > 0 && b > 0)
+      .map(([a, b]) => {
+        const answer = a + b;
+        const answerText = `${answer}${item.suffix}`;
+        return q({
+          id: `g1-step-word-add-${a}-${b}-${item.id}`,
+          grade: 1,
+          unit: gradeUnit(1, 2),
+          modeType: "step",
+          questionType: "word",
+          question: `${item.name}が ${a}${item.suffix} あります。${b}${item.suffix} ${item.action}。ぜんぶで なん${item.suffix} ですか？`,
+          choices: wordChoiceSet(answer, item.suffix, [answer - 1, answer + 1, answer + 2]),
+          answer: answerText,
+          explanation: `ふえたので、たし算を使います。${a} + ${b} = ${answer} です。`,
+          hints: ["ふえたかどうかを見ます。", "ぜんぶでいくつかは、たし算で考えます。"],
+          steps: [
+            {
+              label: "しきをえらぼう",
+              prompt: "どのしきになるかな？",
+              choices: rawChoices(`${a} + ${b}`, [`${a} - ${b}`, `${a} × ${b}`, `${a} ÷ ${b}`]),
+              answer: `${a} + ${b}`,
+              explanation: "ふえたので、たし算を使います。"
+            },
+            {
+              label: "こたえをえらぼう",
+              prompt: `${a} + ${b} は いくつ？`,
+              choices: wordChoiceSet(answer, item.suffix, [answer - 1, answer + 1, answer + 2]),
+              answer: answerText,
+              explanation: `${a} + ${b} = ${answer} です。`
+            }
+          ]
+        });
+      })
+  ),
+  ...g1SubWordItems.flatMap((item) =>
+    subtractionPairsFromAddition
+      .filter(([total, used]) => total > 0 && used > 0)
+      .map(([total, used]) => {
+        const answer = total - used;
+        const answerText = `${answer}${item.suffix}`;
+        return q({
+          id: `g1-step-word-sub-${total}-${used}-${item.id}`,
+          grade: 1,
+          unit: gradeUnit(1, 2),
+          modeType: "step",
+          questionType: "word",
+          question: `${item.name}が ${total}${item.suffix} あります。${used}${item.suffix} ${item.action}。のこりは なん${item.suffix} ですか？`,
+          choices: wordChoiceSet(answer, item.suffix, [answer - 1, answer + 1, answer + 2]),
+          answer: answerText,
+          explanation: `へったので、ひき算を使います。${total} - ${used} = ${answer} です。`,
+          hints: ["へったかどうかを見ます。", "のこりを考えるときは、ひき算で考えます。"],
+          steps: [
+            {
+              label: "しきをえらぼう",
+              prompt: "どのしきになるかな？",
+              choices: rawChoices(`${total} - ${used}`, [`${total} + ${used}`, `${total} × ${used}`, `${total} ÷ ${used}`]),
+              answer: `${total} - ${used}`,
+              explanation: "へったので、ひき算を使います。"
+            },
+            {
+              label: "こたえをえらぼう",
+              prompt: `${total} - ${used} は いくつ？`,
+              choices: wordChoiceSet(answer, item.suffix, [answer - 1, answer + 1, answer + 2]),
+              answer: answerText,
+              explanation: `${total} - ${used} = ${answer} です。`
+            }
+          ]
+        });
+      })
+  ),
+  ...g2MulWordItems.flatMap((item) =>
+    kukuPairs.filter(([a, b]) => a >= 2 && b >= 2).map(([a, b]) => {
+      const answer = a * b;
+      const answerText = `${answer}${item.itemSuffix}`;
+      return q({
+        id: `g2-step-word-mul-${a}-${b}-${item.id}`,
+        grade: 2,
+        unit: gradeUnit(2, 4),
+        modeType: "step",
+        questionType: "word",
+        question: `${item.one} ${a}${item.itemSuffix} あります。同じものが ${b}${item.groups} あります。ぜんぶで なん${item.itemSuffix} ですか？`,
+        choices: wordChoiceSet(answer, item.itemSuffix, [a * Math.max(1, b - 1), a * Math.min(9, b + 1), answer + a]),
+        answer: answerText,
+        explanation: `同じ数が何こ分かを考えるので、かけ算を使います。${a} × ${b} = ${answer} です。`,
+        hints: ["同じ数が何こ分あるかを見ます。", "同じ数がくり返されるときは、かけ算で考えます。"],
+        steps: [
+          {
+            label: "しきをえらぼう",
+            prompt: "どのしきになるかな？",
+            choices: rawChoices(`${a} × ${b}`, [`${a} + ${b}`, `${b} - ${a}`, `${b} ÷ ${a}`]),
+            answer: `${a} × ${b}`,
+            explanation: "同じ数が何こ分かを考えるので、かけ算です。"
+          },
+          {
+            label: "こたえをえらぼう",
+            prompt: `${a} × ${b} は いくつ？`,
+            choices: wordChoiceSet(answer, item.itemSuffix, [a * Math.max(1, b - 1), a * Math.min(9, b + 1), answer + a]),
+            answer: answerText,
+            explanation: `${a} × ${b} = ${answer} です。`
+          }
+        ]
+      });
+    })
+  ),
+  ...g3DivWordItems.flatMap((item) =>
+    divisionPairsFromKuku.filter(([dividend, divisor]) => divisor >= 2 && dividend / divisor >= 2).map(([dividend, divisor]) => {
+      const answer = dividend / divisor;
+      const answerText = `${answer}${item.resultSuffix}`;
+      return q({
+        id: `g3-step-word-div-${dividend}-${divisor}-${item.id}`,
+        grade: 3,
+        unit: gradeUnit(3, 3),
+        modeType: "step",
+        questionType: "word",
+        question: `${item.name}が ${dividend}${item.suffix} あります。${divisor}${item.divisorLabel} ${item.action}`,
+        choices: wordChoiceSet(answer, item.resultSuffix, [answer - 1, answer + 1, answer + 2]),
+        answer: answerText,
+        explanation: `同じ数ずつ分けるので、わり算を使います。${dividend} ÷ ${divisor} = ${answer} です。`,
+        hints: ["同じ数ずつ分けるかを見ます。", "わる数の九九を思い出して考えます。"],
+        steps: [
+          {
+            label: "しきをえらぼう",
+            prompt: "どのしきになるかな？",
+            choices: rawChoices(`${dividend} ÷ ${divisor}`, [`${dividend} + ${divisor}`, `${dividend} - ${divisor}`, `${dividend} × ${divisor}`]),
+            answer: `${dividend} ÷ ${divisor}`,
+            explanation: "同じ数ずつ分けるので、わり算です。"
+          },
+          {
+            label: "こたえをえらぼう",
+            prompt: `${dividend} ÷ ${divisor} は いくつ？`,
+            choices: wordChoiceSet(answer, item.resultSuffix, [answer - 1, answer + 1, answer + 2]),
+            answer: answerText,
+            explanation: `${dividend} ÷ ${divisor} = ${answer} です。`
+          }
+        ]
+      });
+    })
+  ),
+  ...g3RemainderWordItems.flatMap((item) =>
+    range(2, 9).flatMap((divisor) =>
+      range(2, 9).flatMap((quotient) =>
+        range(1, divisor - 1).map((remainder) => {
+          const dividend = divisor * quotient + remainder;
+          const product = divisor * quotient;
+          const answer = `${quotient}${item.groupSuffix} あまり${remainder}${item.remainderSuffix}`;
+          return q({
+            id: `g3-step-word-rem-${dividend}-${divisor}-${remainder}-${item.id}`,
+            grade: 3,
+            unit: gradeUnit(3, 1),
+            modeType: "step",
+            questionType: "word",
+            question: `${item.name}が ${dividend}${item.suffix} あります。${divisor}${item.divisorLabel} ${item.action}。何${item.groupSuffix}できて、何${item.remainderSuffix}あまりますか？`,
+            choices: remainderWordChoices({ quotient, remainder, divisor, groupSuffix: item.groupSuffix, remainderSuffix: item.remainderSuffix }),
+            answer,
+            explanation: `${divisor} × ${quotient} = ${product} で、${dividend}をこえません。${dividend} - ${product} = ${remainder} なので、${answer}です。`,
+            hints: ["こえない九九をさがします。", "あまりは、わる数より小さくなります。"],
+            steps: [
+              {
+                label: "しきをえらぼう",
+                prompt: "どのしきになるかな？",
+                choices: rawChoices(`${dividend} ÷ ${divisor}`, [`${dividend} + ${divisor}`, `${dividend} - ${divisor}`, `${dividend} × ${divisor}`]),
+                answer: `${dividend} ÷ ${divisor}`,
+                explanation: "同じ数ずつ入れるので、わり算です。"
+              },
+              {
+                label: "とちゅうを考えよう",
+                prompt: `${divisor}のだんで、${dividend}をこえない一番近い数は？`,
+                choices: rawChoices(`${divisor} × ${quotient} = ${product}`, [
+                  `${divisor} × ${quotient + 1} = ${divisor * (quotient + 1)}`,
+                  `${divisor} × ${Math.max(1, quotient - 1)} = ${divisor * Math.max(1, quotient - 1)}`,
+                  `${divisor} × ${quotient + 2} = ${divisor * (quotient + 2)}`
+                ]),
+                answer: `${divisor} × ${quotient} = ${product}`,
+                explanation: `${product}が、${dividend}をこえない一番近い数です。`
+              },
+              {
+                label: "こたえをえらぼう",
+                prompt: "答えはどれ？",
+                choices: remainderWordChoices({ quotient, remainder, divisor, groupSuffix: item.groupSuffix, remainderSuffix: item.remainderSuffix }),
+                answer,
+                explanation: `${dividend} - ${product} = ${remainder} なので、${answer}です。`
+              }
+            ]
+          });
+        })
+      )
     )
   )
 ];
@@ -522,6 +917,168 @@ const remainderQuick = [
 
 const quick = (data) => q({ modeType: "quick", ...data });
 
+const pad2 = (value) => String(value).padStart(2, "0");
+const displayHour = (hour) => (hour === 0 ? 12 : hour);
+const digitalTime = (hour, minute) => `${pad2(displayHour(hour))}:${pad2(minute)}`;
+const japaneseTime = (hour, minute) => minute === 0 ? `${displayHour(hour)}時` : `${displayHour(hour)}時${minute}分`;
+const clockMinuteDistractors = (hour, minute, digital = false) => {
+  const h = displayHour(hour);
+  const candidates = [
+    [h % 12 || 12, minute],
+    [h === 12 ? 1 : h + 1, minute],
+    [h, (minute + 5) % 60],
+    [h, (minute + 55) % 60],
+    [minute ? Math.max(1, Math.ceil(minute / 5)) : 6, hour % 60]
+  ];
+  const formatter = digital
+    ? ([candidateHour, candidateMinute]) => `${pad2(candidateHour)}:${pad2(candidateMinute)}`
+    : ([candidateHour, candidateMinute]) => japaneseTime(candidateHour, candidateMinute);
+  return uniqueChoices(candidates.map(formatter));
+};
+const clockChoices = (hour, minute, digital = false) => {
+  const answer = digital ? digitalTime(hour, minute) : japaneseTime(hour, minute);
+  return ensureFourChoices(answer, clockMinuteDistractors(hour, minute, digital));
+};
+const clockQuestion = ({ id, grade, unit, hour, minute, digital = false, simple = false }) => {
+  const answer = digital ? digitalTime(hour, minute) : japaneseTime(hour, minute);
+  const question =
+    digital
+      ? "この時計と同じ時こくはどれですか？"
+      : simple
+        ? "このとけいは なんじ ですか？"
+        : "この時計は何時何分ですか？";
+  const explanation =
+    minute === 0
+      ? `短い針が${displayHour(hour)}を指しているので、${answer}です。`
+      : `長い針は${minute}分を表します。だから${answer}です。`;
+  return quick({
+    id,
+    grade,
+    unit,
+    questionType: "clock",
+    question,
+    clock: { hour: displayHour(hour), minute },
+    choices: clockChoices(hour, minute, digital),
+    answer,
+    explanation,
+    hints: [
+      "短い針は「時」、長い針は「分」を見ます。",
+      "長い針は、数字1つで5分ずつ進みます。"
+    ]
+  });
+};
+
+const normalizeMinutes = (minutes) => ((minutes % 720) + 720) % 720;
+const toMinutes = (hour, minute) => (displayHour(hour) % 12) * 60 + minute;
+const timeFromMinutes = (minutes) => {
+  const normalized = normalizeMinutes(minutes);
+  const hour = Math.floor(normalized / 60) || 12;
+  const minute = normalized % 60;
+  return { hour, minute };
+};
+const formatJpFromMinutes = (minutes) => {
+  const { hour, minute } = timeFromMinutes(minutes);
+  return japaneseTime(hour, minute);
+};
+const formatDigitalFromMinutes = (minutes) => {
+  const { hour, minute } = timeFromMinutes(minutes);
+  return digitalTime(hour, minute);
+};
+
+const clockTimeChoices = (answer, candidates) => rawChoices(answer, candidates);
+
+const clockBeforeAfterQuestion = ({ hour, minute, delta }) => {
+  const base = toMinutes(hour, minute);
+  const target = normalizeMinutes(base + delta);
+  const digital = (hour + minute + Math.abs(delta)) % 2 === 0;
+  const formatter = digital ? formatDigitalFromMinutes : formatJpFromMinutes;
+  const answer = formatter(target);
+  const absDelta = Math.abs(delta);
+  const direction = delta > 0 ? "後" : "前";
+  const deltaText =
+    absDelta === 60
+      ? "1時間"
+      : absDelta === 90
+        ? "1時間30分"
+        : `${absDelta}分`;
+  const baseText = digital ? digitalTime(hour, minute) : japaneseTime(hour, minute);
+  return q({
+    id: `g2-clock-${delta > 0 ? "after" : "before"}-${hour}-${minute}-${absDelta}`,
+    grade: 2,
+    unit: gradeUnit(2, 5),
+    modeType: "quick",
+    questionType: "clock",
+    question: `${baseText} の ${deltaText}${direction} はどれですか？`,
+    clock: { hour: displayHour(hour), minute },
+    choices: clockTimeChoices(answer, [
+      formatter(base),
+      formatter(normalizeMinutes(base - delta)),
+      formatter(normalizeMinutes(target + 30)),
+      formatter(normalizeMinutes(target - 30)),
+      formatter(normalizeMinutes(target + 60))
+    ]),
+    answer,
+    explanation: `${baseText} から ${deltaText}${direction} に動かすと、${answer} です。`,
+    hints: [
+      "前か後かをよく見ましょう。",
+      "まず時間を動かしてから、分を動かすと考えやすいです。"
+    ]
+  });
+};
+
+const clockWordEndQuestion = ({ hour, minute, duration, scene }) => {
+  const start = toMinutes(hour, minute);
+  const end = normalizeMinutes(start + duration);
+  const answer = japaneseTime(timeFromMinutes(end).hour, timeFromMinutes(end).minute);
+  const startText = japaneseTime(hour, minute);
+  return q({
+    id: `g3-clock-word-end-${hour}-${minute}-${duration}-${scene.id}`,
+    grade: 3,
+    unit: gradeUnit(3, 4),
+    modeType: "quick",
+    questionType: "clock",
+    question: `${startText}に ${scene.start}。${duration}分 かかりました。${scene.end}のは 何時何分 ですか？`,
+    clock: { hour: displayHour(hour), minute },
+    choices: clockTimeChoices(answer, [
+      japaneseTime(timeFromMinutes(start + duration - 10).hour, timeFromMinutes(start + duration - 10).minute),
+      japaneseTime(timeFromMinutes(start + duration + 10).hour, timeFromMinutes(start + duration + 10).minute),
+      japaneseTime(timeFromMinutes(start - duration).hour, timeFromMinutes(start - duration).minute),
+      japaneseTime(timeFromMinutes(start + duration + 30).hour, timeFromMinutes(start + duration + 30).minute)
+    ]),
+    answer,
+    explanation: `${startText} から ${duration}分後は、${answer} です。`,
+    hints: [
+      "はじめの時刻と、かかった時間を見つけましょう。",
+      "時と分を分けて考えると分かりやすいです。"
+    ]
+  });
+};
+
+const clockWordDurationQuestion = ({ startHour, startMinute, duration, scene }) => {
+  const start = toMinutes(startHour, startMinute);
+  const end = normalizeMinutes(start + duration);
+  const startText = japaneseTime(startHour, startMinute);
+  const endTime = timeFromMinutes(end);
+  const endText = japaneseTime(endTime.hour, endTime.minute);
+  const answer = `${duration}分`;
+  return q({
+    id: `g3-clock-word-duration-${startHour}-${startMinute}-${duration}-${scene.id}`,
+    grade: 3,
+    unit: gradeUnit(3, 4),
+    modeType: "quick",
+    questionType: "clock",
+    question: `${startText}から ${endText}まで ${scene.action}。かかった時間は 何分 ですか？`,
+    clock: { hour: displayHour(startHour), minute: startMinute },
+    choices: ensureFourChoices(answer, [`${Math.max(5, duration - 10)}分`, `${duration + 10}分`, `${duration + 15}分`, `${Math.max(5, duration - 15)}分`]),
+    answer,
+    explanation: `${startText} から ${endText} までは ${duration}分 です。`,
+    hints: [
+      "はじめの時刻と、おわりの時刻を見つけましょう。",
+      "時と分を分けて、どれだけ進んだかを考えます。"
+    ]
+  });
+};
+
 const clockQuestions = [
   quick({ id: "g1-clock-1", grade: 1, unit: "時計", questionType: "clock", question: "このとけいは なんじ ですか？", clock: { hour: 3, minute: 0 }, choices: ["2じ", "3じ", "4じ", "5じ"], answer: "3じ", explanation: "みじかい はりが3をさしています。だから3じです。" }),
   quick({ id: "g1-clock-2", grade: 1, unit: "時計", questionType: "clock", question: "このとけいは なんじ ですか？", clock: { hour: 8, minute: 0 }, choices: ["7じ", "8じ", "9じ", "10じ"], answer: "8じ", explanation: "みじかい はりが8をさしています。だから8じです。" }),
@@ -547,6 +1104,50 @@ const digitalClockQuestions = [
   quick({ id: "g2-clock-digital-3", grade: 2, unit: gradeUnit(2, 5), questionType: "clock", question: "この時計と同じ時こくはどれですか？", clock: { hour: 2, minute: 45 }, choices: ["02:45", "03:45", "02:09", "09:10"], answer: "02:45", explanation: "長いはりが9をさすと45分です。2時45分は 02:45 です。" }),
   quick({ id: "g3-time-digital-1", grade: 3, unit: gradeUnit(3, 4), questionType: "clock", question: "2時35分の40分後はどれですか？", clock: { hour: 2, minute: 35 }, choices: ["03:15", "03:05", "02:75", "04:15"], answer: "03:15", explanation: "35分に40分をたすと75分です。60分で1時間なので、3時15分です。" }),
   quick({ id: "g3-time-digital-2", grade: 3, unit: gradeUnit(3, 4), questionType: "clock", question: "14:05 は、何時何分ですか？", clock: { hour: 14, minute: 5 }, choices: ["午後2時5分", "午前2時5分", "午後4時5分", "午後2時50分"], answer: "午後2時5分", explanation: "14時は午後2時です。05分なので、午後2時5分です。" })
+];
+
+const generatedClockPool = [
+  ...range(1, 12).flatMap((hour) =>
+    [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].flatMap((minute) => [
+      clockQuestion({
+        id: `g1-clock-read-${hour}-${minute}`,
+        grade: 1,
+        unit: gradeUnit(1, 3),
+        hour,
+        minute,
+        simple: minute === 0
+      }),
+      clockQuestion({
+        id: `g1-clock-digital-${hour}-${minute}`,
+        grade: 1,
+        unit: gradeUnit(1, 3),
+        hour,
+        minute,
+        digital: true
+      })
+    ])
+  ),
+  ...range(1, 12).flatMap((hour) =>
+    [0, 15, 30, 45].flatMap((minute) =>
+      [-90, -60, -30, -15, 15, 30, 60, 90].map((delta) =>
+        clockBeforeAfterQuestion({ hour, minute, delta })
+      )
+    )
+  ),
+  ...[
+    { id: "school", start: "家を出ました", end: "着いた", action: "学校へ行きました" },
+    { id: "study", start: "勉強をはじめました", end: "終わった", action: "勉強しました" },
+    { id: "practice", start: "れんしゅうをはじめました", end: "終わった", action: "れんしゅうしました" }
+  ].flatMap((scene) =>
+    range(1, 12).flatMap((hour) =>
+      [0, 10, 15, 20, 30, 45].flatMap((minute) =>
+        [15, 25, 30, 35, 40, 45, 60, 75].flatMap((duration) => [
+          clockWordEndQuestion({ hour, minute, duration, scene }),
+          clockWordDurationQuestion({ startHour: hour, startMinute: minute, duration, scene })
+        ])
+      )
+    )
+  )
 ];
 
 const unitQuestions = [
@@ -627,12 +1228,15 @@ function validateChoiceList(choices, answer, label, issues) {
 const allQuestions = [
   ...generatedQuick,
   ...generatedBaseCalcs,
+  ...generatedWordProblems,
+  ...generatedStepWordProblems,
   ...wordSteps,
   ...remainders,
   ...verticals,
   ...remainderQuick,
-  ...clockQuestions,
-  ...digitalClockQuestions,
+  ...clockQuestions.filter((question) => question.grade === 1),
+  ...digitalClockQuestions.filter((question) => question.grade === 1),
+  ...generatedClockPool,
   ...unitQuestions,
   ...shapeQuestions,
   ...graphQuestions

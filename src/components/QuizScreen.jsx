@@ -245,10 +245,18 @@ export default function QuizScreen({ questions, modeType, weakMode = false, onFi
         {choices.map((choice, choiceIndex) => {
           const value = choiceValue(choice);
           const state = selected && (value === answer ? "correct" : value === selected ? "wrong" : "");
+          const isObjectChoice = choice && typeof choice === "object";
+          const isShapeChoice = current.questionType === "shape" && isObjectChoice && choice.shape;
           return (
-            <button className={`choice ${state} ${typeof choice === "object" ? "shape-choice" : ""}`} key={`${value}-${choiceIndex}`} onClick={() => choose(choice)}>
-              {typeof choice === "object" && <ShapeDisplay shape={choice.shape} small />}
-              <RubyText>{value}</RubyText>
+            <button
+              className={`choice ${state} ${isObjectChoice ? "shape-choice" : ""}`}
+              key={`${value}-${choiceIndex}`}
+              onClick={() => choose(choice)}
+              aria-label={isShapeChoice ? value : undefined}
+              title={isShapeChoice ? value : undefined}
+            >
+              {isObjectChoice && choice.shape && <ShapeDisplay shape={choice.shape} small />}
+              {!isShapeChoice && <RubyText>{value}</RubyText>}
             </button>
           );
         })}
@@ -295,6 +303,8 @@ function fisherYates(items) {
 }
 
 function getHints(question, step) {
+  if (Array.isArray(step?.hints) && step.hints.length >= 2) return step.hints;
+  if (Array.isArray(question?.hints) && question.hints.length >= 2) return question.hints;
   const text = `${step?.prompt || ""} ${question?.question || ""}`;
   const explanation = step?.explanation || question?.explanation || "どんな式になるかを先に考えてみよう。";
   const type = question?.questionType;
